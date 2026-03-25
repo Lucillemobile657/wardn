@@ -223,7 +223,7 @@ mod tests {
 
         assert!(!report.dry_run);
         assert!(report.migrated_count > 0);
-        assert!(vault.len() > 0);
+        assert!(!vault.is_empty());
     }
 
     #[test]

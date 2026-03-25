@@ -26,6 +26,61 @@ agent logs          → Authorization: Bearer wdn_placeholder_a1b2...   (useless
 LLM context window  → wdn_placeholder_a1b2c3d4e5f6g7h8               (useless)
 ```
 
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph Agent["AI Agent Process"]
+        A1["Agent Code"]
+        A2["ENV: OPENAI_KEY=wdn_placeholder_a1b2..."]
+    end
+
+    subgraph Wardn["wardn daemon · localhost:7777"]
+        direction TB
+        P["HTTP Proxy"]
+        MCP["MCP Server\n(stdio)"]
+
+        subgraph Pipeline["Request Pipeline"]
+            direction LR
+            S1["Identify\nAgent"] --> S2["Resolve\nPlaceholder"] --> S3["Check\nAuth"] --> S4["Rate\nLimit"] --> S5["Inject\nReal Key"]
+        end
+
+        subgraph ResponsePipeline["Response Pipeline"]
+            direction RL
+            R1["Strip Real\nKeys"] --> R2["Replace with\nPlaceholders"]
+        end
+
+        subgraph Vault["Encrypted Vault"]
+            V1["AES-256-GCM"]
+            V2["Argon2id KDF"]
+            V3["Placeholder Map\nper agent × credential"]
+        end
+    end
+
+    subgraph External["External APIs"]
+        E1["api.openai.com"]
+        E2["api.anthropic.com"]
+        E3["..."]
+    end
+
+    A1 -- "placeholder token\nin headers/body" --> P
+    A1 -. "MCP: get_credential_ref\nlist_credentials\ncheck_rate_limit" .-> MCP
+    MCP -. "placeholder token\n(never real keys)" .-> A1
+    P --> Pipeline
+    Pipeline --> External
+    External --> ResponsePipeline
+    ResponsePipeline -- "response with\nplaceholders only" --> A1
+    Pipeline <--> Vault
+    ResponsePipeline <--> Vault
+
+    style Agent fill:#1a1a2e,stroke:#e94560,color:#fff
+    style Wardn fill:#0f3460,stroke:#16213e,color:#fff
+    style Pipeline fill:#16213e,stroke:#e94560,color:#fff
+    style ResponsePipeline fill:#16213e,stroke:#e94560,color:#fff
+    style Vault fill:#1a1a2e,stroke:#00d2ff,color:#fff
+    style External fill:#0a0a0a,stroke:#533483,color:#fff
+```
+
 ## How It Works
 
 ```
@@ -50,13 +105,87 @@ Agent sends request with placeholder in Authorization header
    External API (only place real key exists in transit)
 ```
 
+## Install
+
+```bash
+cargo install wardn
+```
+
 ## Quick Start
+
+```bash
+# Create an encrypted vault
+wardn vault create
+
+# Store credentials
+wardn vault set OPENAI_KEY
+wardn vault set ANTHROPIC_KEY
+
+# Get a placeholder token (never the real key)
+wardn vault get OPENAI_KEY
+# → wdn_placeholder_a1b2c3d4e5f6g7h8
+
+# List stored credentials (names only, no values)
+wardn vault list
+
+# Start the proxy
+wardn serve
+
+# Start proxy + MCP server for Claude Code / Cursor
+wardn serve --mcp --agent my-agent
+```
+
+## CLI Reference
+
+### Vault Management
+
+```bash
+wardn vault create                        # create encrypted vault
+wardn vault set OPENAI_KEY                # store credential (prompts for value, no echo)
+wardn vault get OPENAI_KEY                # get placeholder token (never the real value)
+wardn vault get OPENAI_KEY --agent bot    # get placeholder for specific agent
+wardn vault list                          # list all credentials
+wardn vault rotate OPENAI_KEY             # rotate value, placeholders unchanged
+wardn vault remove OPENAI_KEY             # remove credential
+
+# Custom vault path
+wardn --vault /path/to/vault.enc vault list
+```
+
+### Proxy Server
+
+```bash
+wardn serve                               # HTTP proxy on 127.0.0.1:7777
+wardn serve --host 0.0.0.0 --port 8080    # custom bind address
+wardn serve --config wardn.toml           # load config with rate limits + ACLs
+wardn serve --mcp --agent my-agent        # proxy + MCP server (stdio)
+```
+
+### Credential Migration
+
+```bash
+wardn migrate --dry-run                             # audit Claude Code dir for exposed keys
+wardn migrate --source claude-code                  # scan + migrate to vault
+wardn migrate --source open-claw                    # scan OpenClaw config
+wardn migrate --source directory --path ./my-proj   # scan any directory
+```
+
+### Automation
+
+For CI/scripts, set `WARDN_PASSPHRASE` and `WARDN_VALUE` env vars to skip interactive prompts:
+
+```bash
+WARDN_PASSPHRASE=my-pass wardn vault list
+WARDN_PASSPHRASE=my-pass WARDN_VALUE=sk-proj-xxx wardn vault set OPENAI_KEY
+```
+
+## Library API
 
 Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-wardn = "0.1"
+wardn = "0.2"
 ```
 
 ### Vault Operations
@@ -78,10 +207,6 @@ vault.set_with_config("OPENAI_KEY", "sk-proj-real-key-123", &CredentialConfig {
 let placeholder = vault.get_placeholder("OPENAI_KEY", "researcher")?;
 // → "wdn_placeholder_a1b2c3d4e5f6g7h8"
 
-// Different agent gets a different placeholder for the same key
-let other = vault.get_placeholder("OPENAI_KEY", "writer")?;
-// → "wdn_placeholder_f9e8d7c6b5a4f3e2" (different)
-
 // Rotate the real key — all placeholders keep working
 vault.rotate("OPENAI_KEY", "sk-proj-new-key-456")?;
 ```
@@ -89,19 +214,10 @@ vault.rotate("OPENAI_KEY", "sk-proj-new-key-456")?;
 ### HTTP Proxy
 
 ```rust
-use wardn::proxy::{self, ProxyState};
-use std::sync::Arc;
+use wardn::daemon::{Daemon, DaemonConfig};
 
-let state = Arc::new(ProxyState {
-    vault: Arc::new(RwLock::new(vault)),
-    rate_limiter: Arc::new(Mutex::new(RateLimiter::new())),
-    config: WardenConfig::default(),
-    http_client: reqwest::Client::new(),
-});
-
-let app = proxy::build_router(state);
-let listener = tokio::net::TcpListener::bind("127.0.0.1:7777").await?;
-axum::serve(listener, app).await?;
+let daemon = Daemon::new(vault, DaemonConfig::default());
+daemon.serve_proxy().await?;
 ```
 
 ### MCP Server
@@ -163,11 +279,17 @@ allowed_agents = ["researcher"]
 allowed_domains = ["api.anthropic.com"]
 ```
 
-## Architecture
+## Project Structure
 
 ```
 wardn/
 ├── src/
+│   ├── main.rs             # CLI entry point (clap + tokio)
+│   ├── cli/
+│   │   ├── mod.rs          # Clap argument definitions
+│   │   ├── vault_cmd.rs    # Vault subcommand handlers
+│   │   ├── serve_cmd.rs    # Serve subcommand handler
+│   │   └── migrate_cmd.rs  # Migrate subcommand handler
 │   ├── lib.rs              # Public API, WardenError
 │   ├── config.rs           # TOML configuration parsing
 │   ├── vault/
@@ -180,15 +302,62 @@ wardn/
 │   │   ├── inject.rs       # Credential injection into requests
 │   │   ├── strip.rs        # Credential stripping from responses
 │   │   └── rate_limit.rs   # Token bucket rate limiter
-│   └── mcp/
-│       ├── mod.rs          # MCP server (rmcp, stdio transport)
-│       └── tools.rs        # Tool parameter/response types
+│   ├── mcp/
+│   │   ├── mod.rs          # MCP server (rmcp, stdio transport)
+│   │   └── tools.rs        # Tool parameter/response types
+│   ├── migrate/
+│   │   ├── mod.rs          # Migration orchestrator + risk scoring
+│   │   └── scanners/
+│   │       └── credentials.rs  # API key pattern scanner
+│   └── daemon/
+│       └── mod.rs          # Daemon (proxy + MCP in single process)
 └── tests/
+    ├── cli_tests.rs        # CLI integration tests
     ├── vault_tests.rs      # Vault integration tests
     └── proxy_tests.rs      # Proxy integration tests
 ```
 
-## Vault File Format
+## Vault Encryption
+
+```mermaid
+flowchart LR
+    subgraph Input
+        Pass["Passphrase"]
+        Salt["Random Salt\n(16 bytes)"]
+        Creds["Credentials\n(JSON)"]
+    end
+
+    subgraph KDF["Key Derivation"]
+        Argon["Argon2id\nm=19456 t=2 p=1"]
+    end
+
+    subgraph Encrypt["Encryption"]
+        AES["AES-256-GCM"]
+        Nonce["Random Nonce\n(12 bytes)"]
+    end
+
+    subgraph Output["WDNV File"]
+        direction TB
+        Magic["WDNV (4B)"]
+        Ver["Version (2B)"]
+        SaltOut["Salt (16B)"]
+        Payload["Nonce ‖ Ciphertext ‖ Tag"]
+    end
+
+    Pass --> Argon
+    Salt --> Argon
+    Argon -- "256-bit key" --> AES
+    Creds --> AES
+    Nonce --> AES
+    AES --> Payload
+
+    style Input fill:#1a1a2e,stroke:#e94560,color:#fff
+    style KDF fill:#16213e,stroke:#00d2ff,color:#fff
+    style Encrypt fill:#16213e,stroke:#00d2ff,color:#fff
+    style Output fill:#0f3460,stroke:#533483,color:#fff
+```
+
+### File Format
 
 ```
 Bytes 0-3:   Magic "WDNV"
@@ -199,13 +368,12 @@ Bytes 22+:   AES-256-GCM encrypted payload (nonce ‖ ciphertext ‖ tag)
 
 ## Part of VibeGuard
 
-Wardn is the credential isolation layer of [VibeGuard](https://github.com/nicholasgasior/vibeguard) — a security daemon for AI agents. Other modules:
+Wardn is the credential isolation layer of VibeGuard — a security daemon for AI agents. Other planned modules:
 
 - **Sentinel** — prompt injection firewall
 - **CloakPipe** — PII redaction middleware
 - **Watcher** — audit log + dashboard
-- **Migrate** — credential scanner + auto-import
 
 ## License
 
-MIT OR Apache-2.0
+MIT

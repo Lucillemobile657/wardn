@@ -274,7 +274,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("vault.enc");
 
-        fs::write(&path, &[0u8; 10]).unwrap();
+        fs::write(&path, [0u8; 10]).unwrap();
 
         let result = load_fast(&path, "any-pass");
         assert!(matches!(result, Err(WardenError::InvalidFormat(_))));

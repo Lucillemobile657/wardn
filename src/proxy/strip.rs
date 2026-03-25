@@ -113,9 +113,8 @@ mod tests {
     #[test]
     fn test_strip_echoed_key_from_body() {
         let (vault, placeholder, _) = setup_vault();
-        let body = format!(
-            r#"{{"error": "Invalid key: sk-proj-real-key-123", "code": 401}}"#
-        );
+        let body =
+            r#"{"error": "Invalid key: sk-proj-real-key-123", "code": 401}"#.to_string();
 
         let (result, info) = strip_body(
             body.as_bytes(),
