@@ -108,6 +108,10 @@ Agent sends request with placeholder in Authorization header
 ## Install
 
 ```bash
+# One-liner (Linux / macOS)
+curl -sSf https://install.vibeguard.io | sh
+
+# Or via Cargo
 cargo install wardn
 ```
 
