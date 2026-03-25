@@ -187,11 +187,43 @@ wardn serve --mcp --agent my-agent        # proxy + MCP server (stdio)
 
 ```bash
 wardn setup claude-code                   # register wardn as MCP server in Claude Code
-wardn setup cursor                        # register in Cursor (coming soon)
+wardn setup cursor                        # register wardn as MCP server in Cursor
 
 # Or manually:
 claude mcp add --transport stdio --scope user wardn -- wardn serve --mcp --agent claude-code
 ```
+
+#### What `wardn setup` does
+
+1. Prompts for your vault passphrase and verifies it can open the vault
+2. Finds the `wardn` binary path on your system
+3. Registers wardn as an MCP server:
+   - **Claude Code**: runs `claude mcp add` with `WARDN_PASSPHRASE` in the env config
+   - **Cursor**: writes to `~/.cursor/mcp.json` with the passphrase in `env`
+4. On next launch, the IDE spawns `wardn serve --mcp` as a subprocess
+
+#### Verifying it works
+
+After running setup, restart your IDE and try these prompts:
+
+```
+"List my wardn credentials"
+→ Claude calls list_credentials, shows credential names (never values)
+
+"Get me a reference to OPENAI_KEY"
+→ Claude calls get_credential_ref, gets wdn_placeholder_... (not the real key)
+
+"Check my rate limit for OPENAI_KEY"
+→ Claude calls check_rate_limit, shows remaining quota
+```
+
+#### MCP tools available
+
+| Tool | What it returns | Security |
+|------|----------------|----------|
+| `get_credential_ref` | Placeholder token (`wdn_placeholder_...`) | Never the real value |
+| `list_credentials` | Credential names + metadata | Filtered by agent's access |
+| `check_rate_limit` | Remaining quota, retry info | Read-only |
 
 ### Credential Migration
 
@@ -321,6 +353,7 @@ wardn/
 │   │   ├── mod.rs          # Clap argument definitions
 │   │   ├── vault_cmd.rs    # Vault subcommand handlers
 │   │   ├── serve_cmd.rs    # Serve subcommand handler
+│   │   ├── setup_cmd.rs    # Claude Code / Cursor MCP setup
 │   │   └── migrate_cmd.rs  # Migrate subcommand handler
 │   ├── lib.rs              # Public API, WardenError
 │   ├── config.rs           # TOML configuration parsing
