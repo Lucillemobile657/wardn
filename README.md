@@ -105,6 +105,10 @@ Agent sends request with placeholder in Authorization header
    External API (only place real key exists in transit)
 ```
 
+## Demo
+
+[![asciicast](https://asciinema.org/a/tHbTPeGv8O6aN0K1.svg)](https://asciinema.org/a/tHbTPeGv8O6aN0K1)
+
 ## Install
 
 ```bash
