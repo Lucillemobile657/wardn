@@ -1,5 +1,7 @@
 pub mod config;
+pub mod daemon;
 pub mod mcp;
+pub mod migrate;
 pub mod proxy;
 pub mod vault;
 
