@@ -1,0 +1,50 @@
+pub mod config;
+pub mod mcp;
+pub mod proxy;
+pub mod vault;
+
+pub use config::WardenConfig;
+pub use vault::placeholder::PlaceholderToken;
+pub use vault::Vault;
+
+#[derive(Debug, thiserror::Error)]
+pub enum WardenError {
+    #[error("vault not found at {path}")]
+    VaultNotFound { path: String },
+
+    #[error("wrong passphrase or corrupted vault")]
+    DecryptionFailed,
+
+    #[error("credential '{name}' not found")]
+    CredentialNotFound { name: String },
+
+    #[error("agent '{agent_id}' not authorized for credential '{credential}'")]
+    Unauthorized {
+        agent_id: String,
+        credential: String,
+    },
+
+    #[error("domain '{domain}' not allowed for credential '{credential}'")]
+    DomainNotAllowed { domain: String, credential: String },
+
+    #[error("rate limit exceeded for '{credential}' by agent '{agent_id}', retry after {retry_after_seconds}s")]
+    RateLimitExceeded {
+        credential: String,
+        agent_id: String,
+        retry_after_seconds: u64,
+    },
+
+    #[error("configuration error: {0}")]
+    Config(String),
+
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("encryption error: {0}")]
+    Encryption(String),
+
+    #[error("invalid vault format: {0}")]
+    InvalidFormat(String),
+}
+
+pub type Result<T> = std::result::Result<T, WardenError>;

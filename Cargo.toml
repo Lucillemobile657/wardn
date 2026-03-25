@@ -1,0 +1,39 @@
+[package]
+name = "wardn"
+version = "0.1.0"
+edition = "2021"
+description = "Credential isolation proxy — agents never see real API keys"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/nicholasgasior/vibeguard"
+keywords = ["security", "credentials", "proxy", "ai-agents", "vault"]
+categories = ["authentication", "cryptography"]
+
+[dependencies]
+aes-gcm = "0.10"
+argon2 = "0.5"
+rand = "0.8"
+zeroize = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+thiserror = "2"
+tracing = "0.1"
+hex = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1", features = ["full"] }
+axum = "0.8"
+hyper = { version = "1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["tokio", "http1", "http2"] }
+http-body-util = "0.1"
+reqwest = { version = "0.12", features = ["rustls-tls"] }
+tower = { version = "0.5", features = ["util"] }
+rmcp = { version = "1", features = ["server", "transport-io", "macros"] }
+schemars = "1"
+
+[features]
+test-fast-kdf = []
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["full", "test-util"] }
+wiremock = "0.6"
