@@ -11,6 +11,22 @@ pub fn run(cmd: &SetupCommands, vault_path: &Path) -> Result<()> {
     }
 }
 
+/// Prompt for vault passphrase and verify the vault can be opened.
+fn get_passphrase(vault_path: &Path) -> Result<String> {
+    let passphrase = if let Ok(pass) = std::env::var("WARDN_PASSPHRASE") {
+        pass
+    } else {
+        rpassword::prompt_password("Vault passphrase: ")
+            .context("failed to read passphrase")?
+    };
+
+    // Verify it works
+    wardn::Vault::open(vault_path, &passphrase)
+        .context("failed to open vault — wrong passphrase?")?;
+
+    Ok(passphrase)
+}
+
 /// Register wardn as an MCP server in Claude Code via `claude mcp add`.
 fn setup_claude_code(vault_path: &Path) -> Result<()> {
     let wardn_bin = find_wardn_binary()?;
@@ -19,6 +35,15 @@ fn setup_claude_code(vault_path: &Path) -> Result<()> {
     let vault_str = vault_abs.to_str().unwrap_or("~/.vibeguard/vault.enc");
 
     println!("Setting up wardn for Claude Code...\n");
+
+    // Verify vault exists and passphrase works
+    if !vault_path.exists() {
+        anyhow::bail!(
+            "vault not found at {}. Create one first:\n  wardn vault create",
+            vault_path.display()
+        );
+    }
+    let passphrase = get_passphrase(vault_path)?;
 
     // Check if claude CLI exists
     let claude_check = std::process::Command::new("claude")
@@ -31,11 +56,17 @@ fn setup_claude_code(vault_path: &Path) -> Result<()> {
         std::process::exit(1);
     }
 
+    // Remove existing wardn entry if present (to update env)
+    let _ = std::process::Command::new("claude")
+        .args(["mcp", "remove", "wardn"])
+        .output();
+
     let status = std::process::Command::new("claude")
         .args([
             "mcp", "add",
             "--transport", "stdio",
             "--scope", "user",
+            "-e", &format!("WARDN_PASSPHRASE={passphrase}"),
             "wardn",
             "--",
             &wardn_bin,
@@ -64,6 +95,15 @@ fn setup_cursor(vault_path: &Path) -> Result<()> {
     let vault_str = vault_abs.to_str().unwrap_or("~/.vibeguard/vault.enc");
 
     println!("Setting up wardn for Cursor...\n");
+
+    // Verify vault exists and passphrase works
+    if !vault_path.exists() {
+        anyhow::bail!(
+            "vault not found at {}. Create one first:\n  wardn vault create",
+            vault_path.display()
+        );
+    }
+    let passphrase = get_passphrase(vault_path)?;
 
     let cursor_dir = dirs_cursor();
     let mcp_path = cursor_dir.join("mcp.json");
@@ -95,7 +135,10 @@ fn setup_cursor(vault_path: &Path) -> Result<()> {
         .context("mcpServers must be an object")?
         .insert("wardn".to_string(), serde_json::json!({
             "command": wardn_bin,
-            "args": ["serve", "--mcp", "--agent", "cursor", "--vault", vault_str]
+            "args": ["serve", "--mcp", "--agent", "cursor", "--vault", vault_str],
+            "env": {
+                "WARDN_PASSPHRASE": passphrase
+            }
         }));
 
     // Write back
@@ -120,7 +163,7 @@ fn print_success(tool: &str, verify_cmd: &str) {
     println!("When the agent needs an API key, it calls get_credential_ref");
     println!("and receives a placeholder token (never the real key).");
     println!();
-    println!("Verify with:");
+    println!("Restart {tool}, then verify with:");
     println!("  {verify_cmd}");
 }
 
