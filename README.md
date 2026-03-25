@@ -107,7 +107,9 @@ Agent sends request with placeholder in Authorization header
 
 ## Demo
 
-[![asciicast](https://asciinema.org/a/tHbTPeGv8O6aN0K1.svg)](https://asciinema.org/a/tHbTPeGv8O6aN0K1)
+<p align="center">
+  <img src="demo/wardn-demo.gif" alt="wardn demo" width="800">
+</p>
 
 ## Install
 
