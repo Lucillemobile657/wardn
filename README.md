@@ -108,10 +108,6 @@ Agent sends request with placeholder in Authorization header
 ## Install
 
 ```bash
-# One-liner (Linux / macOS)
-curl -sSf https://install.vibeguard.io | sh
-
-# Or via Cargo
 cargo install wardn
 ```
 
@@ -189,7 +185,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-wardn = "0.2"
+wardn = "0.3"
 ```
 
 ### Vault Operations
