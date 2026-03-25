@@ -1,12 +1,13 @@
 #!/bin/bash
-# wardn interactive demo script
-# Simulates typing for a polished asciinema recording
+# wardn demo — before/after credential isolation
+# Shows what agents see with and without wardn
 
 VAULT_PATH="/tmp/wardn-demo-vault.enc"
 export WARDN_PASSPHRASE="demo-passphrase"
 export RUST_LOG="error"
 
 # Colors
+RED='\033[0;31m'
 CYAN='\033[0;36m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -14,7 +15,6 @@ BOLD='\033[1m'
 DIM='\033[2m'
 NC='\033[0m'
 
-# Simulate typing a command
 type_cmd() {
     echo ""
     printf "${GREEN}❯${NC} "
@@ -26,21 +26,18 @@ type_cmd() {
     sleep 0.3
 }
 
-# Print a comment/explanation
-comment() {
-    echo ""
-    printf "${DIM}${CYAN}# %s${NC}\n" "$1"
-    sleep 1
-}
-
-# Run a command (type it, then execute)
 run() {
     type_cmd "$1"
     eval "$1"
     sleep 1.5
 }
 
-# Section header
+comment() {
+    echo ""
+    printf "${DIM}${CYAN}# %s${NC}\n" "$1"
+    sleep 1
+}
+
 section() {
     echo ""
     echo ""
@@ -48,7 +45,14 @@ section() {
     sleep 1.5
 }
 
-# Cleanup from any previous run
+warn() {
+    printf "${RED}  ⚠ %s${NC}\n" "$1"
+}
+
+ok() {
+    printf "${GREEN}  ✓ %s${NC}\n" "$1"
+}
+
 rm -f "$VAULT_PATH"
 
 # ─── INTRO ───
@@ -65,118 +69,172 @@ cat << 'BANNER'
 BANNER
 printf "${NC}"
 printf "${DIM}  credential isolation for AI agents${NC}\n"
-printf "${DIM}  agents never see real API keys — structural guarantee, not policy${NC}\n"
-sleep 3
-
-# ─── THE PROBLEM ───
-section "THE PROBLEM"
-comment "Every AI agent stores API keys in .env files or environment variables."
-comment "A compromised agent, malicious skill, or stealer gets full access."
-sleep 1
 echo ""
-printf "  ${DIM}~/.env → OPENAI_KEY=sk-proj-real-key-here     ${CYAN}# plaintext!${NC}\n"
-printf "  ${DIM}agent  → Authorization: Bearer sk-proj-real... ${CYAN}# leaked in logs!${NC}\n"
-printf "  ${DIM}LLM    → \"Use key sk-proj-real...\"             ${CYAN}# in context window!${NC}\n"
 sleep 3
 
-# ─── THE FIX ───
-section "THE FIX"
-comment "wardn encrypts credentials and gives agents useless placeholder tokens."
-comment "Real keys are injected at the network proxy layer — agents never touch them."
+# ═══════════════════════════════════════════════════
+# PART 1: THE PROBLEM — WITHOUT WARDN
+# ═══════════════════════════════════════════════════
+
+section "WITHOUT WARDN — the problem"
+
+comment "Typical setup: real API keys stored in .env or shell environment"
+echo ""
+printf "${DIM}  # .env file sitting on disk${NC}\n"
+printf "  OPENAI_KEY=${RED}sk-proj-abc123def456ghi789jkl012mno345${NC}\n"
 sleep 2
 
-# ─── VAULT CREATE ───
-section "VAULT MANAGEMENT"
+comment "Any process, agent, or skill can read the real key:"
+export OPENAI_KEY="sk-proj-abc123def456ghi789jkl012mno345"
+run "echo \$OPENAI_KEY"
 
-comment "Create an AES-256-GCM encrypted vault with Argon2id key derivation"
+comment "An agent's API call contains the real key:"
+run "echo \"Authorization: Bearer \$OPENAI_KEY\""
+
+comment "If the agent is compromised, the attacker has your real key."
+comment "If the agent logs requests, your key is in plaintext in logs."
+comment "If an LLM sees the context, your key is in the context window."
+echo ""
+warn "Real key exposed everywhere: memory, logs, context, disk"
+sleep 3
+
+unset OPENAI_KEY
+
+# ═══════════════════════════════════════════════════
+# PART 2: THE FIX — WITH WARDN
+# ═══════════════════════════════════════════════════
+
+section "WITH WARDN — the fix"
+
+comment "Step 1: Create an encrypted vault (AES-256-GCM + Argon2id)"
 run "wardn vault create --vault $VAULT_PATH"
 
-# ─── STORE CREDENTIALS ───
-comment "Store API keys — values are never echoed to the terminal"
+comment "Step 2: Store the real key in the vault (value never echoed)"
 export WARDN_VALUE="sk-proj-abc123def456ghi789jkl012mno345"
 run "wardn vault set OPENAI_KEY --vault $VAULT_PATH"
-
-export WARDN_VALUE="sk-ant-xyz789abc123def456ghi789jkl012"
-run "wardn vault set ANTHROPIC_KEY --vault $VAULT_PATH"
-
-export WARDN_VALUE="ghp_1234567890abcdef1234567890abcdef12345678"
-run "wardn vault set GITHUB_TOKEN --vault $VAULT_PATH"
 unset WARDN_VALUE
 
-# ─── LIST ───
-comment "List credentials — shows names and metadata, NEVER the actual values"
-run "wardn vault list --vault $VAULT_PATH"
+comment "Step 3: Get a placeholder token for the agent"
+run "wardn vault get OPENAI_KEY --agent claude-code --vault $VAULT_PATH"
 
-# ─── PLACEHOLDER TOKENS ───
-section "PLACEHOLDER TOKENS"
+comment "This is what the agent sees instead of the real key:"
+PLACEHOLDER=$(wardn vault get OPENAI_KEY --agent claude-code --vault $VAULT_PATH)
+export OPENAI_KEY="$PLACEHOLDER"
+echo ""
+run "echo \$OPENAI_KEY"
 
-comment "Agents get useless placeholder tokens instead of real keys"
-run "wardn vault get OPENAI_KEY --vault $VAULT_PATH"
+comment "The agent's API call now contains a useless placeholder:"
+run "echo \"Authorization: Bearer \$OPENAI_KEY\""
 
-comment "Different agents get different placeholders for the same key"
-run "wardn vault get OPENAI_KEY --agent researcher --vault $VAULT_PATH"
-run "wardn vault get OPENAI_KEY --agent writer --vault $VAULT_PATH"
+echo ""
+ok "Agent memory: only wdn_placeholder_... (useless)"
+ok "Agent logs: only wdn_placeholder_... (useless)"
+ok "LLM context: only wdn_placeholder_... (useless)"
+ok "Disk (.env): nothing — key is in encrypted vault"
+sleep 3
 
-comment "Even if an agent is compromised, the attacker only has: wdn_placeholder_..."
-comment "This token is useless outside the wardn proxy."
+unset OPENAI_KEY
+
+# ═══════════════════════════════════════════════════
+# PART 3: HOW THE PROXY WORKS
+# ═══════════════════════════════════════════════════
+
+section "HOW THE PROXY WORKS"
+
+comment "wardn runs a local proxy on localhost:7777"
+comment "The agent sends requests through the proxy with placeholder tokens."
+comment "The proxy swaps placeholders for real keys, forwards the request,"
+comment "then strips real keys from the response before returning to the agent."
+echo ""
+echo ""
+printf "  ${BOLD}Request flow:${NC}\n"
+printf "  ${DIM}Agent${NC} ─── ${RED}wdn_placeholder_a1b2...${NC} ──→ ${GREEN}wardn proxy${NC} ──→ ${BOLD}sk-proj-real...${NC} ──→ ${DIM}API${NC}\n"
+echo ""
+printf "  ${BOLD}Response flow:${NC}\n"
+printf "  ${DIM}Agent${NC} ←── ${RED}wdn_placeholder_a1b2...${NC} ←── ${GREEN}wardn proxy${NC} ←── ${BOLD}sk-proj-real...${NC} ←── ${DIM}API${NC}\n"
+echo ""
+echo ""
+printf "  ${DIM}The real key exists only inside the proxy process and on the wire to the API.${NC}\n"
+printf "  ${DIM}The agent never sees, logs, or stores the real key.${NC}\n"
+sleep 4
+
+# ═══════════════════════════════════════════════════
+# PART 4: PER-AGENT ISOLATION
+# ═══════════════════════════════════════════════════
+
+section "PER-AGENT ISOLATION"
+
+comment "Each agent gets a unique placeholder for the same credential."
+comment "If one agent's token leaks, other agents are unaffected."
+echo ""
+run "wardn vault get OPENAI_KEY --agent claude-code --vault $VAULT_PATH"
+run "wardn vault get OPENAI_KEY --agent cursor --vault $VAULT_PATH"
+run "wardn vault get OPENAI_KEY --agent devin --vault $VAULT_PATH"
+
+comment "Three agents, three different tokens, same underlying key."
+comment "Revoke one without affecting the others."
 sleep 2
 
-# ─── ROTATE ───
-section "KEY ROTATION"
+# ═══════════════════════════════════════════════════
+# PART 5: KEY ROTATION
+# ═══════════════════════════════════════════════════
 
-comment "Rotate a key — the real value changes, but all placeholders keep working"
-export WARDN_VALUE="sk-proj-brand-new-rotated-key-999"
+section "ZERO-DOWNTIME KEY ROTATION"
+
+comment "Rotate the real key — all agent placeholders keep working"
+export WARDN_VALUE="sk-proj-new-rotated-key-after-breach"
 run "wardn vault rotate OPENAI_KEY --vault $VAULT_PATH"
 unset WARDN_VALUE
 
-comment "Agents don't need to update anything — their placeholders still work"
-run "wardn vault get OPENAI_KEY --agent researcher --vault $VAULT_PATH"
+comment "Agents don't need to update anything:"
+run "wardn vault get OPENAI_KEY --agent claude-code --vault $VAULT_PATH"
 
-# ─── MIGRATE ───
-section "CREDENTIAL SCANNER"
+echo ""
+ok "Same placeholder, new real key behind it. Zero agent changes."
+sleep 2
 
-comment "Scan for exposed credentials in your projects"
+# ═══════════════════════════════════════════════════
+# PART 6: CREDENTIAL SCANNER
+# ═══════════════════════════════════════════════════
+
+section "FIND EXPOSED CREDENTIALS"
+
+comment "Scan your projects for leaked API keys"
 mkdir -p /tmp/wardn-demo-scan
-echo 'OPENAI_KEY=sk-proj-abc123def456ghi789
+cat > /tmp/wardn-demo-scan/.env << 'ENVFILE'
+OPENAI_KEY=sk-proj-abc123def456ghi789
 ANTHROPIC_KEY=sk-ant-xyz789abc123def456
-STRIPE_KEY=sk_live_FAKE_DEMO_KEY_NOT_REAL_000000' > /tmp/wardn-demo-scan/.env
+DATABASE_URL=postgres://admin:password@db:5432/app
+ENVFILE
 
 run "wardn migrate --source directory --path /tmp/wardn-demo-scan --dry-run"
 
-comment "Found exposed keys! wardn can migrate them into the encrypted vault."
+comment "Scan your Claude Code config for exposed keys:"
+run "wardn migrate --source claude-code --dry-run"
+
 sleep 2
 
-# ─── PROXY ───
-section "HTTP PROXY"
-comment "wardn serve starts a proxy on localhost:7777"
-comment "It intercepts requests, swaps placeholders for real keys,"
-comment "forwards to the API, then strips real keys from responses."
-echo ""
-printf "  ${DIM}Agent → wdn_placeholder_a1b2... → ${GREEN}wardn proxy${NC} → ${DIM}sk-proj-real... → API${NC}\n"
-printf "  ${DIM}Agent ← wdn_placeholder_a1b2... ← ${GREEN}wardn proxy${NC} ← ${DIM}sk-proj-real... ← API${NC}\n"
-sleep 2
+# ═══════════════════════════════════════════════════
+# PART 7: SUMMARY
+# ═══════════════════════════════════════════════════
 
-comment "Start with: wardn serve"
-comment "Or with MCP for Claude Code: wardn serve --mcp --agent my-agent"
-sleep 2
-
-# ─── CLEANUP ───
-section "SECURITY PROPERTIES"
+section "WHAT WARDN DEFEATS"
 echo ""
-printf "  ${GREEN}✓${NC} No credential in agent memory — only placeholders\n"
-printf "  ${GREEN}✓${NC} No credential on disk in plaintext — AES-256-GCM vault\n"
-printf "  ${GREEN}✓${NC} No credential in logs — only placeholder strings\n"
-printf "  ${GREEN}✓${NC} No credential in LLM context — injected at network layer\n"
-printf "  ${GREEN}✓${NC} Bounded cost exposure — rate limits per agent\n"
-printf "  ${GREEN}✓${NC} Credential echo protection — stripped from responses\n"
-printf "  ${GREEN}✓${NC} Memory safety — zeroed on drop via Zeroize\n"
-sleep 3
+printf "  ${RED}Attack${NC}                                ${GREEN}wardn protection${NC}\n"
+printf "  ${DIM}─────────────────────────────────────  ────────────────────────────────${NC}\n"
+printf "  .env credential theft                  Keys in encrypted vault, not .env\n"
+printf "  Malicious skill reads \$OPENAI_KEY      Gets wdn_placeholder_... (useless)\n"
+printf "  Prompt injection exfiltrates key        Key never in LLM context\n"
+printf "  Agent logs contain real keys            Logs only contain placeholders\n"
+printf "  Full agent compromise                   Attacker has a useless token\n"
+printf "  Cost runaway from looping agent         Rate limits per agent per key\n"
+sleep 4
 
 echo ""
 echo ""
-printf "${BOLD}${CYAN}  Install:${NC}  cargo install wardn\n"
-printf "${BOLD}${CYAN}  GitHub:${NC}   github.com/rohansx/wardn\n"
-printf "${BOLD}${CYAN}  Crate:${NC}    crates.io/crates/wardn\n"
+printf "${BOLD}${CYAN}  Install:${NC}   cargo install wardn\n"
+printf "${BOLD}${CYAN}  GitHub:${NC}    github.com/rohansx/wardn\n"
+printf "${BOLD}${CYAN}  Crate:${NC}     crates.io/crates/wardn\n"
 echo ""
 sleep 3
 
