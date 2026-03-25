@@ -27,13 +27,7 @@ async fn main() {
 
         Commands::Migrate(migrate_args) => cli::migrate_cmd::run(migrate_args, &vault_path),
 
-        Commands::Setup { command } => match command {
-            cli::SetupCommands::ClaudeCode => cli::setup_cmd::run(&vault_path),
-            cli::SetupCommands::Cursor => {
-                eprintln!("Cursor setup coming soon. For now, add wardn MCP server manually.");
-                Ok(())
-            }
-        },
+        Commands::Setup { command } => cli::setup_cmd::run(command, &vault_path),
     };
 
     if let Err(e) = result {

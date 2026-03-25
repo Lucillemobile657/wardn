@@ -2,11 +2,21 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-/// Run `wardn setup claude-code` — registers wardn as an MCP server in Claude Code.
-pub fn run(vault_path: &Path) -> Result<()> {
+use super::SetupCommands;
+
+pub fn run(cmd: &SetupCommands, vault_path: &Path) -> Result<()> {
+    match cmd {
+        SetupCommands::ClaudeCode => setup_claude_code(vault_path),
+        SetupCommands::Cursor => setup_cursor(vault_path),
+    }
+}
+
+/// Register wardn as an MCP server in Claude Code via `claude mcp add`.
+fn setup_claude_code(vault_path: &Path) -> Result<()> {
     let wardn_bin = find_wardn_binary()?;
     let vault_abs = std::fs::canonicalize(vault_path)
         .unwrap_or_else(|_| vault_path.to_path_buf());
+    let vault_str = vault_abs.to_str().unwrap_or("~/.vibeguard/vault.enc");
 
     println!("Setting up wardn for Claude Code...\n");
 
@@ -21,7 +31,6 @@ pub fn run(vault_path: &Path) -> Result<()> {
         std::process::exit(1);
     }
 
-    // Register wardn as MCP server
     let status = std::process::Command::new("claude")
         .args([
             "mcp", "add",
@@ -33,7 +42,7 @@ pub fn run(vault_path: &Path) -> Result<()> {
             "serve",
             "--mcp",
             "--agent", "claude-code",
-            "--vault", vault_abs.to_str().unwrap_or("~/.vibeguard/vault.enc"),
+            "--vault", vault_str,
         ])
         .status()
         .context("failed to run 'claude mcp add'")?;
@@ -43,32 +52,86 @@ pub fn run(vault_path: &Path) -> Result<()> {
         std::process::exit(1);
     }
 
-    println!("\nwardn registered as MCP server in Claude Code.");
+    print_success("Claude Code", "claude mcp list");
+    Ok(())
+}
+
+/// Register wardn as an MCP server in Cursor via ~/.cursor/mcp.json.
+fn setup_cursor(vault_path: &Path) -> Result<()> {
+    let wardn_bin = find_wardn_binary()?;
+    let vault_abs = std::fs::canonicalize(vault_path)
+        .unwrap_or_else(|_| vault_path.to_path_buf());
+    let vault_str = vault_abs.to_str().unwrap_or("~/.vibeguard/vault.enc");
+
+    println!("Setting up wardn for Cursor...\n");
+
+    let cursor_dir = dirs_cursor();
+    let mcp_path = cursor_dir.join("mcp.json");
+
+    // Read existing config or create new
+    let mut config: serde_json::Value = if mcp_path.exists() {
+        let content = std::fs::read_to_string(&mcp_path)
+            .context("failed to read ~/.cursor/mcp.json")?;
+        if content.trim().is_empty() {
+            serde_json::json!({ "mcpServers": {} })
+        } else {
+            serde_json::from_str(&content)
+                .context("failed to parse ~/.cursor/mcp.json")?
+        }
+    } else {
+        std::fs::create_dir_all(&cursor_dir)
+            .context("failed to create ~/.cursor/")?;
+        serde_json::json!({ "mcpServers": {} })
+    };
+
+    // Add wardn server entry
+    let servers = config
+        .as_object_mut()
+        .context("invalid mcp.json format")?
+        .entry("mcpServers")
+        .or_insert_with(|| serde_json::json!({}));
+
+    servers.as_object_mut()
+        .context("mcpServers must be an object")?
+        .insert("wardn".to_string(), serde_json::json!({
+            "command": wardn_bin,
+            "args": ["serve", "--mcp", "--agent", "cursor", "--vault", vault_str]
+        }));
+
+    // Write back
+    let formatted = serde_json::to_string_pretty(&config)
+        .context("failed to serialize mcp.json")?;
+    std::fs::write(&mcp_path, formatted)
+        .context("failed to write ~/.cursor/mcp.json")?;
+
+    println!("wrote {}", mcp_path.display());
+    print_success("Cursor", "Cursor Settings → Features → MCP");
+    Ok(())
+}
+
+fn print_success(tool: &str, verify_cmd: &str) {
+    println!("\nwardn registered as MCP server in {tool}.");
     println!();
-    println!("Claude Code now has these tools:");
+    println!("MCP tools available:");
     println!("  get_credential_ref  — get a placeholder token for a credential");
     println!("  list_credentials    — list available credentials");
     println!("  check_rate_limit    — check remaining quota");
     println!();
-    println!("When Claude needs an API key, it will call get_credential_ref");
-    println!("and receive a placeholder token (never the real key).");
+    println!("When the agent needs an API key, it calls get_credential_ref");
+    println!("and receives a placeholder token (never the real key).");
     println!();
     println!("Verify with:");
-    println!("  claude mcp list");
-
-    Ok(())
+    println!("  {verify_cmd}");
 }
 
 /// Find the wardn binary path.
 fn find_wardn_binary() -> Result<String> {
-    // Check if we're running from cargo install
     if let Ok(current_exe) = std::env::current_exe() {
         if current_exe.file_name().map(|f| f == "wardn").unwrap_or(false) {
             return Ok(current_exe.to_string_lossy().to_string());
         }
     }
 
-    // Check PATH
     let which = std::process::Command::new("which")
         .arg("wardn")
         .output();
@@ -82,6 +145,10 @@ fn find_wardn_binary() -> Result<String> {
         }
     }
 
-    // Fallback
     Ok("wardn".to_string())
+}
+
+fn dirs_cursor() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_default();
+    std::path::PathBuf::from(home).join(".cursor")
 }
