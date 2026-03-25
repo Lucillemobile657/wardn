@@ -120,13 +120,29 @@ cargo install wardn
 ## Quick Start
 
 ```bash
-# Create an encrypted vault
+# Create an encrypted vault and store your keys
 wardn vault create
-
-# Store credentials
 wardn vault set OPENAI_KEY
 wardn vault set ANTHROPIC_KEY
 
+# Set up Claude Code integration (one command)
+wardn setup claude-code
+```
+
+That's it. Claude Code now uses wardn's MCP server to get placeholder tokens instead of reading real keys from your environment.
+
+### What happens next
+
+1. Claude Code calls `get_credential_ref` → gets `wdn_placeholder_a1b2...` (not the real key)
+2. Agent sends request with placeholder through wardn proxy
+3. Proxy swaps placeholder for real key, forwards to API
+4. Proxy strips real key from response before returning to agent
+
+The real key never enters the agent's memory, logs, or LLM context window.
+
+### Manual setup
+
+```bash
 # Get a placeholder token (never the real key)
 wardn vault get OPENAI_KEY
 # → wdn_placeholder_a1b2c3d4e5f6g7h8
@@ -165,6 +181,16 @@ wardn serve                               # HTTP proxy on 127.0.0.1:7777
 wardn serve --host 0.0.0.0 --port 8080    # custom bind address
 wardn serve --config wardn.toml           # load config with rate limits + ACLs
 wardn serve --mcp --agent my-agent        # proxy + MCP server (stdio)
+```
+
+### Claude Code / Cursor Integration
+
+```bash
+wardn setup claude-code                   # register wardn as MCP server in Claude Code
+wardn setup cursor                        # register in Cursor (coming soon)
+
+# Or manually:
+claude mcp add --transport stdio --scope user wardn -- wardn serve --mcp --agent claude-code
 ```
 
 ### Credential Migration

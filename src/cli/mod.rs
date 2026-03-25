@@ -1,5 +1,6 @@
 pub mod migrate_cmd;
 pub mod serve_cmd;
+pub mod setup_cmd;
 pub mod vault_cmd;
 
 use std::path::PathBuf;
@@ -39,6 +40,12 @@ pub enum Commands {
 
     /// Scan for exposed credentials and migrate them
     Migrate(MigrateArgs),
+
+    /// Set up wardn integration with AI tools
+    Setup {
+        #[command(subcommand)]
+        command: SetupCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -117,4 +124,13 @@ pub enum MigrateSourceArg {
     ClaudeCode,
     OpenClaw,
     Directory,
+}
+
+#[derive(Subcommand)]
+pub enum SetupCommands {
+    /// Register wardn as an MCP server in Claude Code
+    ClaudeCode,
+
+    /// Register wardn as an MCP server in Cursor
+    Cursor,
 }
