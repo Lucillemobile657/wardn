@@ -326,6 +326,37 @@ MCP tools exposed (read-only, no credential values ever returned):
 | Full agent compromise | Attacker has a useless placeholder |
 | Cost runaway from looping agent | Rate limit per credential per agent |
 
+## How Is This Different From...
+
+| Tool | What it does | How wardn differs |
+|------|-------------|-------------------|
+| **Secrets managers** (Vault, AWS SM, 1Password) | Secure storage + retrieval | Agent still gets the real key at runtime. Wardn ensures the agent never touches it. |
+| **Varlock** | Schema-based `.env` validation + AI-safe config | Focuses on config management and leak scanning. Wardn does runtime credential injection — the key never enters the agent process. |
+| **OpenRouter** | API routing + key management | Trusts the client with an API key. Wardn doesn't — agent holds a useless placeholder. |
+| **dotenv + .gitignore** | Keep secrets out of git | Keys still in memory, env vars, logs. Wardn removes them from all three. |
+| **Service meshes** (Istio, Linkerd) | Service-to-service auth | Solve infra-level mTLS. Wardn solves agent-to-API auth where the agent itself is untrusted. |
+
+### Trust Boundary
+
+Wardn concentrates trust in a single local process (the proxy) instead of spreading it across every plugin, tool, and LLM context window. This is a smaller attack surface, not zero attack surface:
+
+- The proxy runs locally as a subprocess spawned by your IDE or shell — same trust level as your kernel
+- The vault is encrypted at rest and only decrypted in-memory with your passphrase
+- If your local machine is fully compromised, wardn can't help (nothing can)
+- The placeholder token is a bearer token to the proxy — but it only works via `localhost:7777`, not against real APIs, and can be rate-limited and revoked per-agent
+
+## Audit Logging
+
+Every credential access is logged with a unique request ID for traceability:
+
+```
+INFO request_id=a1b2c3 agent=claude-code method=POST domain=api.openai.com path=/v1/chat/completions proxy request received
+INFO request_id=a1b2c3 agent=claude-code credential=OPENAI_KEY domain=api.openai.com credential injected
+INFO request_id=a1b2c3 agent=claude-code upstream_status=200 credentials_injected=1 credentials_stripped=0 proxy request completed
+```
+
+Set `RUST_LOG=wardn=info` (or `debug`/`trace`) to control verbosity. Logs go to stderr, never stdout.
+
 ## Configuration
 
 ```toml

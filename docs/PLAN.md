@@ -49,6 +49,33 @@ Native agent integration via MCP protocol.
 | HTTPS CONNECT requires MITM | High | Phase 2 MVP = HTTP only; HTTPS via HTTP_PROXY env |
 | Credential false-positive stripping | Low | Only strip values >8 chars that were injected in same request |
 
+### Phase 4: Audit Logging + Observability
+
+Per-request audit trail with agent/session tracking.
+
+| Step | File | What | Status |
+|------|------|------|--------|
+| 4.1 | proxy/mod.rs | Request ID generation + structured logging per request | DONE |
+| 4.2 | proxy/mod.rs | Log credential injection events with agent + domain | DONE |
+| 4.3 | proxy/mod.rs | Log rate limit violations | DONE |
+| 4.4 | proxy/mod.rs | Log response stripping events | DONE |
+| 4.5 | mcp/mod.rs | Log MCP tool calls with agent ID | DONE |
+| 4.6 | README.md | Document audit logging + RUST_LOG usage | DONE |
+
+### Phase 5: Improvements (Roadmap)
+
+Community-requested features from Reddit/HN feedback.
+
+| Step | What | Source | Status |
+|------|------|--------|--------|
+| 5.1 | Structured JSON log output (`--log-format json`) | maxedbeech | TODO |
+| 5.2 | Session ID tracking across multiple requests | maxedbeech | TODO |
+| 5.3 | Log export / queryable audit trail | maxedbeech | TODO |
+| 5.4 | HTTPS CONNECT support (MITM proxy for TLS) | architecture gap | TODO |
+| 5.5 | Credential expiry / TTL per credential | community | TODO |
+| 5.6 | Web dashboard for audit logs (Watcher module) | VibeGuard roadmap | TODO |
+| 5.7 | `wardn scan` as standalone command (not just migrate) | wameisadev | TODO |
+
 ## Success Criteria
 
 - `cargo test` passes with 80%+ coverage
@@ -57,3 +84,4 @@ Native agent integration via MCP protocol.
 - Placeholder tokens unique per (credential, agent)
 - Rotation doesn't change placeholders
 - Wrong passphrase = clear error
+- Every credential access logged with request ID and agent identity

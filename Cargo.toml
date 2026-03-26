@@ -1,10 +1,10 @@
 [package]
 name = "wardn"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "Credential isolation proxy — agents never see real API keys"
 license = "MIT"
-repository = "https://github.com/nicholasgasior/vibeguard"
+repository = "https://github.com/rohansx/wardn"
 keywords = ["security", "credentials", "proxy", "ai-agents", "vault"]
 categories = ["authentication", "cryptography"]
 

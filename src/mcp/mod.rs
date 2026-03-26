@@ -58,6 +58,11 @@ impl WardenMcpServer {
         let mut vault = self.vault.write().await;
         match vault.get_placeholder(&params.credential_name, &self.agent_id) {
             Ok(token) => {
+                tracing::info!(
+                    agent = %self.agent_id,
+                    credential = %params.credential_name,
+                    "mcp: credential ref requested"
+                );
                 let resp = GetCredentialRefResponse {
                     credential: params.credential_name,
                     placeholder: token.to_string(),
@@ -66,6 +71,12 @@ impl WardenMcpServer {
                     .unwrap_or_else(|e| format!(r#"{{"error": "{}"}}"#, e))
             }
             Err(e) => {
+                tracing::warn!(
+                    agent = %self.agent_id,
+                    credential = %params.credential_name,
+                    error = %e,
+                    "mcp: credential ref failed"
+                );
                 let resp = ErrorResponse {
                     error: e.to_string(),
                 };
@@ -84,6 +95,7 @@ impl WardenMcpServer {
         Parameters(_params): Parameters<ListCredentialsParams>,
     ) -> String {
         let vault = self.vault.read().await;
+        tracing::info!(agent = %self.agent_id, "mcp: credentials listed");
         let all = vault.list();
 
         let credentials: Vec<CredentialEntry> = all
@@ -113,6 +125,11 @@ impl WardenMcpServer {
         &self,
         Parameters(params): Parameters<CheckRateLimitParams>,
     ) -> String {
+        tracing::info!(
+            agent = %self.agent_id,
+            credential = %params.credential_name,
+            "mcp: rate limit checked"
+        );
         let mut rl = self.rate_limiter.lock().await;
         match rl.status(&params.credential_name, &self.agent_id) {
             Some(status) => {

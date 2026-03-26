@@ -27,6 +27,13 @@ pub struct ProxyState {
 
 const AGENT_HEADER: &str = "x-warden-agent";
 
+/// Generate a short unique request ID for audit trail correlation.
+fn generate_request_id() -> String {
+    use rand::Rng;
+    let bytes: [u8; 6] = rand::thread_rng().gen();
+    hex::encode(bytes)
+}
+
 /// Build the proxy router.
 pub fn build_router(state: Arc<ProxyState>) -> Router {
     Router::new()
@@ -45,7 +52,10 @@ async fn proxy_handler(
 ) -> Response {
     match handle_proxy_request(state, req).await {
         Ok(response) => response,
-        Err(e) => error_response(e),
+        Err(e) => {
+            tracing::warn!(error = %e, "proxy request failed");
+            error_response(e)
+        }
     }
 }
 
@@ -53,6 +63,8 @@ async fn handle_proxy_request(
     state: Arc<ProxyState>,
     req: Request<Body>,
 ) -> crate::Result<Response> {
+    let request_id = generate_request_id();
+
     // 1. Extract agent identity from X-Warden-Agent header
     let agent_id = req
         .headers()
@@ -70,6 +82,17 @@ async fn handle_proxy_request(
         .unwrap_or_default();
 
     let domain = host.split(':').next().unwrap_or(&host).to_string();
+    let method = req.method().to_string();
+    let path = req.uri().path().to_string();
+
+    tracing::info!(
+        request_id = %request_id,
+        agent = %agent_id,
+        method = %method,
+        domain = %domain,
+        path = %path,
+        "proxy request received"
+    );
 
     // 3. Read the request parts
     let (mut parts, body) = req.into_parts();
@@ -101,11 +124,29 @@ async fn handle_proxy_request(
         inject::inject_body(&body_bytes, &agent_id, &domain, &vault)?;
     all_injected.extend(body_injected);
 
+    // Log credential injection events
+    for cred_name in &all_injected {
+        tracing::info!(
+            request_id = %request_id,
+            agent = %agent_id,
+            credential = %cred_name,
+            domain = %domain,
+            "credential injected"
+        );
+    }
+
     // 7. Rate limit check for each injected credential
     {
         let mut rl = state.rate_limiter.lock().await;
         for cred_name in &all_injected {
             if let Err(retry_after) = rl.check(cred_name, &agent_id) {
+                tracing::warn!(
+                    request_id = %request_id,
+                    agent = %agent_id,
+                    credential = %cred_name,
+                    retry_after_seconds = %retry_after,
+                    "rate limit exceeded"
+                );
                 return Err(WardenError::RateLimitExceeded {
                     credential: cred_name.clone(),
                     agent_id: agent_id.clone(),
@@ -173,6 +214,25 @@ async fn handle_proxy_request(
     let (stripped_body, strip_info) =
         strip::strip_body(&resp_body, &agent_id, &all_injected, &vault);
     drop(vault);
+
+    if strip_info.stripped_count > 0 {
+        tracing::info!(
+            request_id = %request_id,
+            agent = %agent_id,
+            stripped_count = %strip_info.stripped_count,
+            credentials = ?strip_info.stripped_credentials,
+            "credentials stripped from response"
+        );
+    }
+
+    tracing::info!(
+        request_id = %request_id,
+        agent = %agent_id,
+        upstream_status = %resp_status.as_u16(),
+        credentials_injected = %all_injected.len(),
+        credentials_stripped = %strip_info.stripped_count,
+        "proxy request completed"
+    );
 
     // 12. Build response
     let mut response = Response::builder().status(StatusCode::from_u16(resp_status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY));
