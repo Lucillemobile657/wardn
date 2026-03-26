@@ -1,6 +1,6 @@
 [package]
 name = "wardn"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "Credential isolation proxy — agents never see real API keys"
 license = "MIT"
@@ -33,7 +33,7 @@ axum = "0.8"
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["tokio", "http1", "http2"] }
 http-body-util = "0.1"
-reqwest = { version = "0.12", features = ["rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 tower = { version = "0.5", features = ["util"] }
 rmcp = { version = "1", features = ["server", "transport-io", "macros"] }
 schemars = "1"
